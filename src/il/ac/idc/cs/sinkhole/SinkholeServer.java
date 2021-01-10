@@ -94,7 +94,7 @@ public class SinkholeServer {
 
     private static void prepareAndSendPacket(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
         byte RA = (byte)(packetData[3] | (byte)0x80);
-        byte AA = (byte)(packetData[2] | (byte)0xfb);
+        byte AA = (byte)(packetData[2] & (byte)0xfb);
         packetData[3] = RA;
         packetData[2] = AA;
         sendFinalPacket(socket, packet, packetData, clientAddress, clientPort);
