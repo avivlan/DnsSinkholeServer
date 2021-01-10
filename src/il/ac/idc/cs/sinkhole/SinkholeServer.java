@@ -4,7 +4,6 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.*;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Random;
 
@@ -37,10 +36,10 @@ public class SinkholeServer {
             InetAddress clientAddress = receiverPacket.getAddress();
             int clientPort = receiverPacket.getPort();
             byte[] packetData = receiverPacket.getData();
-            String nameFromDns = getNameFromPacket(receiverPacket);
+            String nameFromDns = getNameFromPacket(receiverPacket, 12); // 12 - UDP header size
             if (isBlockList && blockList.contains(nameFromDns)) // block the request
             {
-
+                prepareAndSendError(serverSocket, receiverPacket, packetData, clientAddress, clientPort);
             }
             else
             {
@@ -51,9 +50,20 @@ public class SinkholeServer {
                 packetData = receiverPacket.getData();
                 int iterationLimit = 0;
                 while (checkConditions(packetData) && iterationLimit < 16) {
-
-
+                    int indexToStart = 12; // UDP header
+                    while (packetData[indexToStart] != 0) {
+                        indexToStart += 1;
+                    }
+                    indexToStart += 17;
+                    String serverName = getNameFromPacket(receiverPacket, indexToStart); // 12 - UDP header size
+                    InetAddress serverAddress = InetAddress.getByName(serverName);
+                    DatagramPacket packetToSend = new DatagramPacket(dnsPacketToRoot.getData(), dnsPacketToRoot.getLength(), serverAddress, 53);
+                    serverSocket.send(packetToSend);
+                    serverSocket.receive(receiverPacket);
+                    packetData = receiverPacket.getData();
+                    iterationLimit ++;
                 }
+                prepareAndSendPacket(serverSocket, receiverPacket, packetData, clientAddress, clientPort);
             }
         }
         catch (SocketException ex)
@@ -73,6 +83,30 @@ public class SinkholeServer {
         }
     }
 
+    private static void prepareAndSendError(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
+        packetData[3] = (byte)(packetData[3] | (byte)0x3);
+        byte RA = (byte)(packetData[3] | (byte)0x80);
+        byte AA = (byte)(packetData[2] | (byte)0x80);
+        packetData[3] = RA;
+        packetData[2] = AA;
+        sendFinalPacket(socket, packet, packetData, clientAddress, clientPort);
+    }
+
+    private static void prepareAndSendPacket(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
+        byte RA = (byte)(packetData[3] | (byte)0x80);
+        byte AA = (byte)(packetData[2] | (byte)0xfb);
+        packetData[3] = RA;
+        packetData[2] = AA;
+        sendFinalPacket(socket, packet, packetData, clientAddress, clientPort);
+    }
+
+    private static void sendFinalPacket(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
+        packet.setData(packetData);
+        packet.setAddress(clientAddress);
+        packet.setPort(clientPort);
+        socket.send(packet);
+    }
+
     private static boolean checkConditions(byte[] packetDataToCheck) {
         boolean conditionsOK = false;
         boolean errorOK;
@@ -86,8 +120,9 @@ public class SinkholeServer {
         return  conditionsOK;
     }
 
-    private static String getNameFromPacket(DatagramPacket packet) {
-        int indexToStart = 12; // UDP header size
+
+
+    private static String getNameFromPacket(DatagramPacket packet, int indexToStart) {
         byte[] packetData = packet.getData();
         StringBuilder name = new StringBuilder();
         // start going over packet data to find the domain name
