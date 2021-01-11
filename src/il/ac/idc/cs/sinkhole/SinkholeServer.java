@@ -11,18 +11,22 @@ import java.util.Random;
 public class SinkholeServer {
 
     static boolean isBlockList = false;
-    static final int UDPDNS_SIZE = 512;
+    static final int UDP_DNS_SIZE = 512;
     static final int DNS_NAME_POSITION = 17;
     static HashSet<String> blockList;
 
     public static void main(String[] args) {
 
         //check if block list is required
-        if (args.length != 0)
+        if (args.length == 1)
         {
             String blockListFile = args[0];
             blockList = createBlockList(blockListFile);
             isBlockList = true;
+        }
+        else if (args.length > 1) {
+            System.err.println("Usage: SinkholeServer [opt]blocklist.txt");
+            System.exit(-1);
         }
 
         startServer();
@@ -33,7 +37,7 @@ public class SinkholeServer {
         DatagramSocket serverSocket = null;
         try {
             serverSocket = new DatagramSocket(5300); // listen on port 5300
-            DatagramPacket receiverPacket = new DatagramPacket(new byte[UDPDNS_SIZE], UDPDNS_SIZE);
+            DatagramPacket receiverPacket = new DatagramPacket(new byte[UDP_DNS_SIZE], UDP_DNS_SIZE);
             serverSocket.receive(receiverPacket);
             InetAddress clientAddress = receiverPacket.getAddress();
             int clientPort = receiverPacket.getPort();
@@ -87,11 +91,17 @@ public class SinkholeServer {
             System.err.println("Unable to reach requested domain " + ex.getMessage());
         }
         finally {
-            serverSocket.close();
+            try {
+                serverSocket.close();
+            }
+            catch (Exception ex) {
+                System.err.println("Unable to close socket " + ex.getMessage());
+            }
         }
     }
 
     private static void prepareAndSendError(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
+        // set required bytes for error response
         packetData[3] = (byte)(packetData[3] | (byte)0x3);
         byte RA = (byte)(packetData[3] | (byte)0x80);
         byte AA = (byte)(packetData[2] | (byte)0x80);
@@ -101,6 +111,7 @@ public class SinkholeServer {
     }
 
     private static void prepareAndSendPacket(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
+        // set required bytes for correct response
         byte RA = (byte)(packetData[3] | (byte)0x80);
         byte AA = (byte)(packetData[2] & (byte)0xfb);
         packetData[3] = RA;
@@ -109,6 +120,7 @@ public class SinkholeServer {
     }
 
     private static void sendFinalPacket(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
+        // send answer to the client
         packet.setData(packetData);
         packet.setAddress(clientAddress);
         packet.setPort(clientPort);
@@ -129,7 +141,7 @@ public class SinkholeServer {
     }
 
     private static String getNameFromPacket(DatagramPacket packet, int indexToStart) {
-        byte[] packetData = Arrays.copyOf(packet.getData(), packet.getLength());
+        byte[] packetData = Arrays.copyOf(packet.getData(), packet.getLength()); // copy packet data without changing the original
         StringBuilder name = new StringBuilder();
         // start going over packet data to find the domain name
         while (packetData[indexToStart] != 0) {
@@ -153,18 +165,10 @@ public class SinkholeServer {
     }
 
     private static InetAddress getRandomRootServer() throws UnknownHostException {
-        //int lettersRange = 'm' - 'a';
-        //int rangeStart = 'a';
-        //char letter = (char) (rand.nextInt(lettersRange) + rangeStart);
-        //InetAddress rootIP = InetAddress.getByName(letter + ".root-servers.net");
         char[] letterArray = new char[] {'a' , 'b' , 'c', 'd' ,'e' , 'f' , 'g', 'h', 'i', 'j' , 'k' , 'l' ,'m'};
         Random rand = new Random();
         int randIndex = rand.nextInt(letterArray.length);
         InetAddress rootIP = InetAddress.getByName(letterArray[randIndex] + ".root-servers.net");
-        //Random r = new Random();
-        //char c = (char) (r.nextInt(13) + 97);
-        //return InetAddress.getByName(c + ".root-servers.net");
-
         return rootIP;
     }
 
