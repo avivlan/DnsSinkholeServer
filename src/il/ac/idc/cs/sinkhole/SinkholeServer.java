@@ -12,6 +12,7 @@ public class SinkholeServer {
 
     static boolean isBlockList = false;
     static final int UDPDNS_SIZE = 512;
+    static final int DNS_NAME_POSITION = 17;
     static HashSet<String> blockList;
 
     public static void main(String[] args) {
@@ -30,10 +31,8 @@ public class SinkholeServer {
     private static void startServer() {
 
         DatagramSocket serverSocket = null;
-        DatagramSocket querySocket = null;
         try {
             serverSocket = new DatagramSocket(5300); // listen on port 5300
-            querySocket = new DatagramSocket();
             DatagramPacket receiverPacket = new DatagramPacket(new byte[UDPDNS_SIZE], UDPDNS_SIZE);
             serverSocket.receive(receiverPacket);
             InetAddress clientAddress = receiverPacket.getAddress();
@@ -53,7 +52,15 @@ public class SinkholeServer {
                 packetData = Arrays.copyOf(receiverPacket.getData(), receiverPacket.getLength());
                 int iterationLimit = 0;
                 while (checkConditions(packetData) && iterationLimit < 16) {
-                    InetAddress serverAddress = getAuthorityServer(receiverPacket);
+                    // get next authoritative DNS Server
+                    int indexToStart = 12; // UDP header
+                    while (packetData[indexToStart] != 0) {
+                        indexToStart += 1;
+                    }
+                    indexToStart += DNS_NAME_POSITION;
+                    String serverName = getNameFromPacket(receiverPacket, indexToStart);
+                    InetAddress serverAddress = InetAddress.getByName(serverName);
+                    // send query to authoritative DNS Server
                     DatagramPacket packetToSend = new DatagramPacket(dnsPacketToRoot.getData(), dnsPacketToRoot.getLength(), serverAddress, 53);
                     serverSocket.send(packetToSend);
                     serverSocket.receive(receiverPacket);
@@ -75,21 +82,13 @@ public class SinkholeServer {
         {
             System.err.println("Unable to receive packet " + ex.getMessage());
         }
+        catch (StringIndexOutOfBoundsException ex)
+        {
+            System.err.println("Unable to reach requested domain " + ex.getMessage());
+        }
         finally {
-            querySocket.close();
             serverSocket.close();
         }
-    }
-
-    private static InetAddress getAuthorityServer(DatagramPacket packetData) throws UnknownHostException {
-        int indexToStart = 12; // UDP header
-        while (packetData.getData()[indexToStart] != 0) {
-            indexToStart += 1;
-        }
-        indexToStart += 17;
-        String serverName = getNameFromPacket(packetData, indexToStart);
-
-        return InetAddress.getByName(serverName);
     }
 
     private static void prepareAndSendError(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
@@ -106,8 +105,6 @@ public class SinkholeServer {
         byte AA = (byte)(packetData[2] & (byte)0xfb);
         packetData[3] = RA;
         packetData[2] = AA;
-        //packetData[3] = (byte) (packetData[3] | (byte)0x80);
-        //packetData[2] = (byte) (packetData[2] & (byte) 0xfb);
         sendFinalPacket(socket, packet, packetData, clientAddress, clientPort);
     }
 
