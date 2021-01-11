@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.*;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Random;
 
@@ -29,13 +30,15 @@ public class SinkholeServer {
     private static void startServer() {
 
         DatagramSocket serverSocket = null;
+        DatagramSocket querySocket = null;
         try {
             serverSocket = new DatagramSocket(5300); // listen on port 5300
+            querySocket = new DatagramSocket();
             DatagramPacket receiverPacket = new DatagramPacket(new byte[UDPDNS_SIZE], UDPDNS_SIZE);
             serverSocket.receive(receiverPacket);
             InetAddress clientAddress = receiverPacket.getAddress();
             int clientPort = receiverPacket.getPort();
-            byte[] packetData = receiverPacket.getData();
+            byte[] packetData = Arrays.copyOf(receiverPacket.getData(), receiverPacket.getLength());
             String nameFromDns = getNameFromPacket(receiverPacket, 12); // 12 - UDP header size
             if (isBlockList && blockList.contains(nameFromDns)) // block the request
             {
@@ -47,20 +50,14 @@ public class SinkholeServer {
                 DatagramPacket dnsPacketToRoot = new DatagramPacket(packetData, packetData.length, rootServerIP, 53);
                 serverSocket.send(dnsPacketToRoot);
                 serverSocket.receive(receiverPacket);
-                packetData = receiverPacket.getData();
+                packetData = Arrays.copyOf(receiverPacket.getData(), receiverPacket.getLength());
                 int iterationLimit = 0;
                 while (checkConditions(packetData) && iterationLimit < 16) {
-                    int indexToStart = 12; // UDP header
-                    while (packetData[indexToStart] != 0) {
-                        indexToStart += 1;
-                    }
-                    indexToStart += 17;
-                    String serverName = getNameFromPacket(receiverPacket, indexToStart); // 12 - UDP header size
-                    InetAddress serverAddress = InetAddress.getByName(serverName);
+                    InetAddress serverAddress = getAuthorityServer(receiverPacket);
                     DatagramPacket packetToSend = new DatagramPacket(dnsPacketToRoot.getData(), dnsPacketToRoot.getLength(), serverAddress, 53);
                     serverSocket.send(packetToSend);
                     serverSocket.receive(receiverPacket);
-                    packetData = receiverPacket.getData();
+                    packetData = Arrays.copyOf(receiverPacket.getData(), receiverPacket.getLength());
                     iterationLimit ++;
                 }
                 prepareAndSendPacket(serverSocket, receiverPacket, packetData, clientAddress, clientPort);
@@ -79,8 +76,20 @@ public class SinkholeServer {
             System.err.println("Unable to receive packet " + ex.getMessage());
         }
         finally {
+            querySocket.close();
             serverSocket.close();
         }
+    }
+
+    private static InetAddress getAuthorityServer(DatagramPacket packetData) throws UnknownHostException {
+        int indexToStart = 12; // UDP header
+        while (packetData.getData()[indexToStart] != 0) {
+            indexToStart += 1;
+        }
+        indexToStart += 17;
+        String serverName = getNameFromPacket(packetData, indexToStart);
+
+        return InetAddress.getByName(serverName);
     }
 
     private static void prepareAndSendError(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
@@ -97,6 +106,8 @@ public class SinkholeServer {
         byte AA = (byte)(packetData[2] & (byte)0xfb);
         packetData[3] = RA;
         packetData[2] = AA;
+        //packetData[3] = (byte) (packetData[3] | (byte)0x80);
+        //packetData[2] = (byte) (packetData[2] & (byte) 0xfb);
         sendFinalPacket(socket, packet, packetData, clientAddress, clientPort);
     }
 
@@ -120,10 +131,8 @@ public class SinkholeServer {
         return  conditionsOK;
     }
 
-
-
     private static String getNameFromPacket(DatagramPacket packet, int indexToStart) {
-        byte[] packetData = packet.getData();
+        byte[] packetData = Arrays.copyOf(packet.getData(), packet.getLength());
         StringBuilder name = new StringBuilder();
         // start going over packet data to find the domain name
         while (packetData[indexToStart] != 0) {
@@ -155,6 +164,9 @@ public class SinkholeServer {
         Random rand = new Random();
         int randIndex = rand.nextInt(letterArray.length);
         InetAddress rootIP = InetAddress.getByName(letterArray[randIndex] + ".root-servers.net");
+        //Random r = new Random();
+        //char c = (char) (r.nextInt(13) + 97);
+        //return InetAddress.getByName(c + ".root-servers.net");
 
         return rootIP;
     }
