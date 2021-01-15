@@ -53,7 +53,7 @@ public class SinkholeServer {
                 DatagramPacket dnsPacketToRoot = new DatagramPacket(packetData, packetData.length, rootServerIP, 53);
                 serverSocket.send(dnsPacketToRoot);
                 serverSocket.receive(receiverPacket);
-                packetData = Arrays.copyOf(receiverPacket.getData(), receiverPacket.getLength());
+                packetData = Arrays.copyOf(receiverPacket.getData(), receiverPacket.getLength()); // copy packet content without changing it
                 int iterationLimit = 0;
                 while (checkConditions(packetData) && iterationLimit < 16) {
                     // get next authoritative DNS Server
@@ -103,8 +103,8 @@ public class SinkholeServer {
     private static void prepareAndSendError(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
         // set required bytes for error response
         packetData[3] = (byte)(packetData[3] | (byte)0x3);
-        byte RA = (byte)(packetData[3] | (byte)0x80);
-        byte AA = (byte)(packetData[2] | (byte)0x80);
+        byte RA = (byte)(packetData[3] | (byte)0x80); //check if starts with 10
+        byte AA = (byte)(packetData[2] | (byte)0x80); //check if starts with 10
         packetData[3] = RA;
         packetData[2] = AA;
         sendFinalPacket(socket, packet, packetData, clientAddress, clientPort);
@@ -112,7 +112,7 @@ public class SinkholeServer {
 
     private static void prepareAndSendPacket(DatagramSocket socket, DatagramPacket packet, byte[] packetData, InetAddress clientAddress, int clientPort) throws IOException {
         // set required bytes for correct response
-        byte RA = (byte)(packetData[3] | (byte)0x80);
+        byte RA = (byte)(packetData[3] | (byte)0x80); //check if starts with 10
         byte AA = (byte)(packetData[2] & (byte)0xfb);
         packetData[3] = RA;
         packetData[2] = AA;
@@ -145,8 +145,8 @@ public class SinkholeServer {
         StringBuilder name = new StringBuilder();
         // start going over packet data to find the domain name
         while (packetData[indexToStart] != 0) {
-            int len = packetData[indexToStart] & 0xff;
-            if ((len & 0xc0) == 0xc0)
+            int len = packetData[indexToStart] & 0xff; //get unsigned int
+            if ((len & 0xc0) == 0xc0) //check top two bits
             {
                 indexToStart = packetData[indexToStart + 1];
                 len = packetData[indexToStart];
